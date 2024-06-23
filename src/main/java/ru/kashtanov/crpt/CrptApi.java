@@ -1,6 +1,5 @@
 package ru.kashtanov.crpt;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.gson.Gson;
 
 import java.io.IOException;
@@ -9,44 +8,53 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 public class CrptApi {
 
     private final TimeUnit timeUnit;
-    private Integer counterRequestQty=0;
+
     private final int requestLimit;
-    private final String POST_URL="https://ismp.crpt.ru/api/v3/lk/documents/create";
+    private final String POST_URL = "https://ismp.crpt.ru/api/v3/lk/documents/create";
     private final HttpClient httpClient;
-    private ObjectMapper objectMapper;
+    // private final RateLimiter rateLimiter;
+    private ExecutorService executorService;
+    private Semaphore semaphore;
 
 
-    public CrptApi( TimeUnit timeUnit1, int requestLimit1){
-        this.timeUnit = timeUnit1;
-        this.requestLimit = requestLimit1;
+
+    public CrptApi(TimeUnit timeUnit, int requestLimit) {
+        this.timeUnit = timeUnit;
+        this.requestLimit = requestLimit;
+        this.executorService = Executors.newSingleThreadExecutor();
         this.httpClient = HttpClient.newHttpClient();
+        this.semaphore = new Semaphore(requestLimit);
     }
 
-    public void createDocument(Document document,String signature) throws IOException, InterruptedException {
-        HttpRequest httpRequest = createRequest(document);
-        HttpResponse<String> response = httpClient.send(httpRequest,HttpResponse.BodyHandlers.ofString());
-        if(response.statusCode()==200){
-            System.out.println("Here you can use your own logics for the request processing");
-        }else{
-            System.out.println("Sorry, but Something went wrong");
+    public void createDocument(Document document, String signature) throws IOException, InterruptedException {
+        System.out.println("Waiting of incoming requests...");
+        semaphore.acquire();
+        System.out.println(semaphore.availablePermits());
+        executorService.submit(() -> semaphore.release(), timeUnit);
+        try {
+            // You can add your logic here for further processing
+            HttpRequest httpRequest = createRequest(document);
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            System.out.println(response);
+        } catch (InterruptedException interruptedException) {
+            interruptedException.printStackTrace();
         }
-        System.out.println(response);
 
     }
 
-    public HttpRequest createRequest(Document document) throws IOException, InterruptedException {
-
+    public HttpRequest createRequest(Document document) {
         return HttpRequest.newBuilder()
                 .uri(URI.create(POST_URL))
-                .header("Content-type","application/JSON")
+                .header("Content-type", "application/JSON")
                 .POST(HttpRequest.BodyPublishers.ofString(new Gson().toJson(document)))
                 .build();
     }
+
 
     public static class Document {
         private Description description;
@@ -187,7 +195,7 @@ public class CrptApi {
         }
     }
 
-    public static class Product{
+    public static class Product {
         private String certificateDocument;
         private String certificateDocument_date;
         private String certificateDocumentNumber;
